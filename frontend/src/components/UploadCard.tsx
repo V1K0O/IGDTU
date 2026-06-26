@@ -148,7 +148,10 @@ export default function UploadCard({ onGenerationComplete }: UploadCardProps) {
         const generateRes = await fetch("http://127.0.0.1:8000/generate-content", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transcript: transcribeData.transcript }),
+          body: JSON.stringify({
+            transcript: transcribeData.transcript,
+            video_title: uploadData.title
+          }),
         });
 
         if (!generateRes.ok) throw new Error("Generation failed");

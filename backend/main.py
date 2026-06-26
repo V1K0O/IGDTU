@@ -11,6 +11,7 @@ import re
 import urllib.request
 import urllib.parse
 import ollama
+import traceback
 
 # =====================
 # LOAD ENV + SUPABASE
@@ -155,7 +156,33 @@ def transcribe(req: TranscribeRequest):
         raise HTTPException(status_code=404, detail="File not found")
 
     title = file_data.data[0]["title"]
-    transcript = f"In this video '{title}', we discuss AI, startups and productivity."
+    
+    # Clean the title (e.g. remove file extensions and replace underscores/hyphens)
+    clean_title = title
+    for ext in ['.mp4', '.mp3', '.wav', '.mov', '.avi', '.m4a']:
+        if clean_title.lower().endswith(ext):
+            clean_title = clean_title[:-len(ext)]
+    clean_title = clean_title.replace('_', ' ').replace('-', ' ').strip()
+
+    # Generate a realistic, topic-specific transcript using Ollama
+    transcript = f"In this video '{title}', we discuss AI, startups and productivity." # Fallback
+    try:
+        ollama_prompt = f"""
+You are an expert video transcriber.
+Create a realistic, detailed, high-quality monologue transcript of a video with the title: "{clean_title}".
+The transcript should be a first-person spoken monologue, natural, detailed, and directly about the topic of the title.
+Do NOT include any speaker labels (like "Speaker 1:") or timestamps. Do NOT include any intro or outro commentary like "Here is the transcript:". Just return the raw transcript text.
+"""
+        response = ollama.chat(
+            model="llama3.2",
+            messages=[{"role": "user", "content": ollama_prompt}]
+        )
+        model_transcript = response["message"]["content"].strip()
+        if model_transcript:
+            transcript = model_transcript
+    except Exception as e:
+        traceback.print_exc()
+        print(f"Error calling Ollama in transcribe: {e}")
 
     supabase.table("videos").update({
         "transcript": transcript
@@ -178,11 +205,17 @@ Transcript: {req.transcript}
 
 Return ONLY a valid JSON object with these exact keys, no extra text:
 {{
-  "linkedin": "professional post here",
-  "twitter_thread": "tweet 1\\n\\ntweet 2\\n\\ntweet 3",
-  "instagram": "caption with hashtags",
-  "newsletter": "email newsletter content",
-  "hooks": ["hook 1", "hook 2", "hook 3"],
+  "linkedin": "A professional post text block summarizing the key points of the content with appropriate formatting and 2-3 hashtags.",
+  "twitter_thread": "A string containing a Twitter/X thread. Start with a hook and list the tweets separated by double newlines. E.g., '🧵 tweet 1\\n\\n1️⃣ tweet 2\\n\\n2️⃣ tweet 3'",
+  "instagram": "A catchy, engaging Instagram caption with emojis and relevant hashtags.",
+  "newsletter": "An engaging email newsletter draft that summarizes the major lessons, insights, or takeaways from the video with bullet points and a friendly tone.",
+  "hooks": [
+    "Hook 1: A viral scroll-stopping hook statement.",
+    "Hook 2: Another viral scroll-stopping hook statement.",
+    "Hook 3: Hook statement.",
+    "Hook 4: Hook statement.",
+    "Hook 5: Hook statement."
+  ],
   "calendar": [
     {{"day": "Monday", "platform": "LinkedIn"}},
     {{"day": "Tuesday", "platform": "Instagram"}},
@@ -208,7 +241,22 @@ Return ONLY a valid JSON object with these exact keys, no extra text:
         result = json.loads(json_match.group())
 
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ollama error: {str(e)}")
+
+    # Ensure all required keys exist using defaults to prevent KeyError
+    result.setdefault("linkedin", "")
+    result.setdefault("twitter_thread", "")
+    result.setdefault("instagram", "")
+    result.setdefault("newsletter", "")
+    result.setdefault("hooks", [])
+    result.setdefault("calendar", [
+        {"day": "Monday", "platform": "LinkedIn"},
+        {"day": "Tuesday", "platform": "Instagram"},
+        {"day": "Wednesday", "platform": "X Thread"},
+        {"day": "Thursday", "platform": "Reel"},
+        {"day": "Friday", "platform": "Newsletter"}
+    ])
 
     # Supabase mein save
     supabase.table("content_outputs").insert({
